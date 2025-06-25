@@ -1,0 +1,145 @@
+---
+title: "fibr_sub"
+author: "Ladislav Buček"
+date: "2025-05-13"
+output: 
+  html_notebook:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, renv init}
+setwd("/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/")
+renv::init()
+```
+
+```{r, data loading}
+library(CHOIR)
+library(SingleCellExperiment) # zellkonverter usually returns this object type
+library(dplyr) # Optional, for potential data checks
+library(scRNAseq)
+library(Seurat)
+library(reticulate)
+#use_virtualenv("/storage/praha1/home/bucekl/labgenexp/spatial_project/venv", required = TRUE)
+library(zellkonverter)
+library(Matrix)
+
+```
+
+# **Install and Load Required Libraries**
+```{r libraries ravis}
+# Set memory limit for Java and reproducibility seed
+options(java.parameters = "-Xmx30000m")
+set.seed(100)
+
+# List of required packages (from CRAN and Bioconductor)
+required_packages <- c("dplyr", "CHOIR", "Seurat","S4Vectors","tibble","scran","igraph","leiden")
+
+# Function to suppress both messages and warnings
+suppress_all <- function(expr) {
+  suppressMessages(suppressWarnings(expr))
+}
+
+# Install and load missing packages quietly
+install_and_load_packages <- function(package) {
+  if (!require(package, character.only = TRUE)) {
+    suppress_all(tryCatch({
+      install.packages(package, dependencies = TRUE)
+    }, error = function(e) {
+      if (!requireNamespace("BiocManager", quietly = TRUE)) {
+        suppress_all(install.packages("BiocManager"))
+      }
+      suppress_all(BiocManager::install(package))
+    }))
+  }
+  suppress_all(library(package, character.only = TRUE))
+}
+
+# Apply the function to install/load required packages
+invisible(lapply(required_packages, install_and_load_packages))
+```
+
+```{r, data loading}
+fibro_path <- "/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/sce_with_CHOIR.rds"
+clusters_path <- "/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/choir_intermediate/fibroblasts_choir_clusters_both.csv"
+fibro_obj <- readRDS(fibro_path)
+clusters <- read.csv(clusters_path, stringsAsFactors = FALSE)
+```
+
+```{r, adding to obj}
+clusters_df <- clusters |>
+  column_to_rownames("barcode") |>
+  DataFrame()
+
+clusters_df <- clusters_df[colnames(fibro_obj), , drop = FALSE]
+
+colData(fibro_obj) <- cbind(colData(fibro_obj), clusters_df)
+
+```
+
+```{r, cluster 4}
+cluster = 4
+cell_type_col = "CHOIR_Fibro_Integrated"
+# --- Subset to Cluster 4 ---
+print(paste("Subsetting to cells annotated as CHOIR_Fibro_Integrated cluster", cluster))
+if (!cell_type_col %in% colnames(colData(fibro_obj))) stop(paste("Column '", cell_type_col, "' not found."))
+fibro_indices <- which(colData(fibro_obj)[[cell_type_col]] == cluster)
+if (length(fibro_indices) == 0) stop(paste("No cells found with label:", cluster))
+sce_fibro_4 <- fibro_obj[, fibro_indices]
+print(paste("Subsetted to", ncol(sce_fibro_4), "fibroblast cells."))
+print("Inputs verified in fibroblast subset.")
+```
+```{r,choir}
+sce_fibro_4 <- CHOIR(
+    sce_fibro_4,
+    key = "CHOIR_Integrated_subclustering_4",
+    batch_correction_method = "Harmony",
+    batch_labels = "sample.id",
+    use_assay = "logcounts",
+    n_cores = 128,
+    verbose = TRUE
+)
+```
+```{r, Leiden}
+emb <- reducedDim(sce_fibro_4, "CHOIR_P0_reduction")[, 1:30]
+g <- buildSNNGraph(emb, k = 20)
+set.seed(42)
+cl <- leiden(g, resolution_parameter = 0.5)
+colData(sce_fibro_4)$Leiden_0.5 <- factor(cl)
+
+
+```
+
+```{r, export}
+print("\nExtracting cluster labels for export...")
+barcodes <- colnames(sce_fibro_4) # Use barcodes from original subset
+choir_out_key <- "CHOIR_clusters_0.05"
+
+# Extract integrated labels (handle potential errors)
+labels_int <- tryCatch({
+     colData(sce_fibro_4)[[choir_out_key]]
+    }, error = function(e) {
+     print(paste("Warning: Could not extract", choir_out_key, "- filling with NA"))
+     rep(NA, length(barcodes))
+})
+
+# Create the final data frame
+cluster_assignments <- data.frame(
+  barcode = barcodes,
+  CHOIR_Fibro_Integrated_subclustering_4 = labels_int
+)
+rownames(cluster_assignments) <- cluster_assignments$barcode
+output_path_csv <-"/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/choir_intermediate/fibroblasts_choir_subclustering_4_integrated.csv"
+print(paste("Saving combined cluster assignments for fibroblasts to:", output_path_csv))
+write.csv(cluster_assignments, file = output_path_csv, row.names = FALSE, quote = FALSE)
+print("Successfully saved fibroblast CHOIR clusters as CSV.")
+```
+
+

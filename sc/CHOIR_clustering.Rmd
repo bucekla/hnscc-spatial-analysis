@@ -1,0 +1,74 @@
+---
+title: "CHOIR_clustering"
+author: "Ladislav Buček"
+date: "2025-04-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, renv init}
+setwd("/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/")
+renv::init()
+```
+
+```{r, data loading}
+library(CHOIR)
+library(SingleCellExperiment) # zellkonverter usually returns this object type
+library(dplyr) # Optional, for potential data checks
+library(scRNAseq)
+library(Seurat)
+library(reticulate)
+#use_virtualenv("/storage/praha1/home/bucekl/labgenexp/spatial_project/venv", required = TRUE)
+library(zellkonverter)
+```
+
+```{r, loading data}
+
+input_path <- "/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/choir_intermediate/adata_integrated_for_choir.h5ad"
+#choir_batch_key <- "sample.id"         # Batch key used during Harmony
+#choir_embedding_key <- "X_pca_harmony" # Integrated embedding calculated in Python
+#choir_out_key <- "CHOIR_clusters"      # Column name for results in R/Python object metadata
+
+
+sce <- readH5AD(input_path,use_hdf5 = TRUE,verbose = TRUE )
+assay(sce, "logcounts") <- assays(sce)[["X"]]
+assay(sce, "counts")    <- assays(sce)[["counts"]]   # already there
+assays(sce)             <- assays(sce)[c("counts","logcounts")]
+
+```
+
+
+```{r, plan b}
+
+# pull the Harmony PCs and the HVG list out of your SCE
+#harmony_pcs  <- reducedDim(sce, "X_pca_harmony")          # matrix  cells × dims
+#var_features <- rownames(sce)[rowData(sce)$highly_variable]
+
+#table(colData(sce)$sample.id, useNA = "ifany")
+#length(unique(colData(sce)$sample.id))      # just the count
+
+## 2.  What class is it now?
+#class(colData(sce)$sample.id)
+assay(sce, "counts") <- as(assay(sce, "counts"), "dgCMatrix")
+assay(sce, "logcounts") <- as(assay(sce, "logcounts"), "dgCMatrix")
+
+
+sce <- CHOIR(
+    sce,
+    use_assay               = "logcounts",
+    batch_correction_method = "Harmony",
+    batch_labels            = "sample.id",
+    n_cores                 = 120
+)
+
+md <- metadata(sce)
+md$CHOIR$records <- NULL      
+metadata(sce) <- md
+
+
+
+writeH5AD(sce, "sce_with_CHOIR.h5ad")
+saveRDS(sce, "sce_with_CHOIR.rds")
+```

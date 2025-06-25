@@ -1,0 +1,28 @@
+# Ignore raw and processed data
+/sc/GSE181919
+/sc/GSE139324_RAW
+/sc/renv
+*.h5ad
+*.csv
+*.tsv
+*.loom
+*.rds
+/spatial/data
+
+# Ignore generated figures and plots
+*.pdf
+*.png
+*.jpg
+*.svg
+
+# Ignore notebook checkpoints and scratch work
+
+#ignore venvs
+/venv
+/spotiphy-venv
+/spotiphy-py310
+
+# Ignore temporary or system files
+*.log
+*.tmp
+*.DS_Store

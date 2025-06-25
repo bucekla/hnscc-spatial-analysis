@@ -1,0 +1,162 @@
+---
+title: "CHOIR_fibro"
+author: "Ladislav Buček"
+date: "2025-04-29"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, renv init}
+setwd("/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/")
+renv::activate()
+```
+
+```{r, data loading}
+library(CHOIR)
+library(SingleCellExperiment) # zellkonverter usually returns this object type
+library(dplyr) # Optional, for potential data checks
+library(scRNAseq)
+library(Seurat)
+library(reticulate)
+#use_virtualenv("/storage/praha1/home/bucekl/labgenexp/spatial_project/venv", required = TRUE)
+library(zellkonverter)
+library(Matrix)
+
+```
+
+```{r, loading data}
+
+input_dir_from_python <- "./choir_intermediate/"
+h5ad_input_filename <- "adata_lognorm_for_choir.h5ad" 
+input_path <- file.path(input_dir_from_python, h5ad_input_filename)
+
+output_dir_from_r <- "./choir_intermediate/"
+csv_output_filename_fib <- "fibroblasts_choir_clusters_both.csv" # Combined CSV output
+output_path_csv <- file.path(output_dir_from_r, csv_output_filename_fib)
+# Optional RDS save
+rds_output_filename_fib <- "sce_fibroblasts_choir_clustered_both_final.rds"
+output_path_rds <- file.path(output_dir_from_r, rds_output_filename_fib)
+
+# --- Parameters ---
+fibroblast_cell_type_label <- "Fibroblasts"
+cell_type_col <- "cell.type"
+batch_key <- "sample.id" 
+choir_out_key_integrated <- "CHOIR_Fibro_Integrated"
+choir_out_key_unintegrated <- "CHOIR_Fibro_Unintegrated"
+n_cores_to_use <- 64
+
+# --- Load Log-Normalized AnnData object ---
+print(paste("Loading Log-Normalized AnnData object from:", input_path))
+if (!file.exists(input_path)) { stop("Input H5AD file not found.") }
+sce_full <- readH5AD(input_path, use_hdf5 = TRUE, reader = "R", verbose = TRUE)
+print("AnnData object loaded.")
+# Ensure logcounts assay exists and is sparse
+if (!"logcounts" %in% assayNames(sce_full)) { if("X" %in% assayNames(sce_full)) { assay(sce_full, "logcounts") <- assay(sce_full, "X")} else { stop("No logcounts/X.") }}
+assay(sce_full, "logcounts") <- as(assay(sce_full, "logcounts"), "dgCMatrix")
+print("Using 'logcounts' assay.")
+
+# --- Subset to Fibroblasts ---
+print(paste("Subsetting to cells annotated as:", fibroblast_cell_type_label))
+if (!cell_type_col %in% colnames(colData(sce_full))) stop(paste("Column '", cell_type_col, "' not found."))
+fibro_indices <- which(colData(sce_full)[[cell_type_col]] == fibroblast_cell_type_label)
+if (length(fibro_indices) == 0) stop(paste("No cells found with label:", fibroblast_cell_type_label))
+sce_fibro <- sce_full[, fibro_indices]
+print(paste("Subsetted to", ncol(sce_fibro), "fibroblast cells."))
+if (!batch_key %in% colnames(colData(sce_fibro))) stop("Batch key lost.")
+print("Inputs verified in fibroblast subset.")
+
+# --- Run CHOIR: Integrated Version ---
+print("\n--- Running CHOIR on Fibroblasts (Integrated via Harmony) ---")
+sce_fibro_int <- sce_fibro # Work on a copy for clarity
+colData(sce_fibro_int)$CHOIR_Placeholder_Int <- NA # Add placeholder column
+tryCatch({
+  sce_fibro_int <- CHOIR(
+    sce_fibro_int,
+    key = "CHOIR_Integrated",
+    batch_correction_method = "Harmony",
+    batch_labels = batch_key,
+    use_assay = "logcounts",
+    n_cores = n_cores_to_use,
+    verbose = TRUE
+  )
+  # Find and rename output column
+  actual_out_key_int <- "CHOIR_clusters_0.05"
+  if (is.null(actual_out_key_int)) stop("Integrated CHOIR output key not found.")
+  print(paste("Found integrated output column:", actual_out_key_int))
+  colnames(colData(sce_fibro_int))[colnames(colData(sce_fibro_int)) == actual_out_key_int] <- choir_out_key_integrated
+  print(paste("Renamed to:", choir_out_key_integrated))
+
+  colData(sce_fibro_int)[[choir_out_key_integrated]] <- as.factor(colData(sce_fibro_int)[[choir_out_key_integrated]])
+  print("CHOIR clustering (Integrated) finished. Cluster counts:")
+  print(table(colData(sce_fibro_int)[[choir_out_key_integrated]]))
+}, error = function(e) { print("ERROR during Integrated CHOIR run:"); print(e); stop("Integrated CHOIR failed.") })
+
+
+# --- Run CHOIR: Unintegrated Version ---
+print("\n--- Running CHOIR on Fibroblasts (Unintegrated) ---")
+sce_fibro_unint <- sce_fibro # Use the original subset again
+colData(sce_fibro_unint)$CHOIR_Placeholder_Unint <- NA # Add placeholder column
+tryCatch({
+  sce_fibro_unint <- CHOIR(
+    sce_fibro_unint,
+    key = "CHOIR_Unintegrated",
+    batch_correction_method = "none",
+    batch_labels = NULL,
+    use_assay = "logcounts",
+    n_cores = n_cores_to_use,
+    verbose = TRUE
+  )
+   # Find and rename output column
+  possible_out_keys_unint <- c("CHOIR_Unintegrated_cluster", "CHOIR_cluster", "Cluster", "clusters")
+  actual_out_key_unint <- NULL
+  for (key in possible_out_keys_unint) { if (key %in% colnames(colData(sce_fibro_unint))) { actual_out_key_unint <- key; break } }
+  if (is.null(actual_out_key_unint)) stop("Unintegrated CHOIR output key not found.")
+  print(paste("Found unintegrated output column:", actual_out_key_unint))
+  colnames(colData(sce_fibro_unint))[colnames(colData(sce_fibro_unint)) == actual_out_key_unint] <- choir_out_key_unintegrated
+  print(paste("Renamed to:", choir_out_key_unintegrated))
+
+  colData(sce_fibro_unint)[[choir_out_key_unintegrated]] <- as.factor(colData(sce_fibro_unint)[[choir_out_key_unintegrated]])
+  print("CHOIR clustering (Unintegrated) finished. Cluster counts:")
+  print(table(colData(sce_fibro_unint)[[choir_out_key_unintegrated]]))
+}, error = function(e) { print("ERROR during Unintegrated CHOIR run:"); print(e); stop("Unintegrated CHOIR failed.") })
+
+
+# --- Combine Results into a DataFrame for Export ---
+print("\nExtracting cluster labels for export...")
+barcodes <- colnames(sce_fibro) # Use barcodes from original subset
+
+print("\nExtracting cluster labels for export...")
+# Use the barcodes from the original subset
+barcodes <- colnames(sce_fibro)
+
+# Extract labels safely, checking if columns exist
+labels_int <- if (choir_out_key_integrated %in% colnames(colData(sce_fibro_int_res))) {
+                 colData(sce_fibro_int_res)[barcodes, choir_out_key_integrated] # Ensure alignment
+              } else { print("Warning: Integrated labels not found"); rep(NA, length(barcodes)) }
+
+labels_unint <- if (choir_out_key_unintegrated %in% colnames(colData(sce_fibro_unint_res))) {
+                 colData(sce_fibro_unint_res)[barcodes, choir_out_key_unintegrated] # Ensure alignment
+               } else { print("Warning: Unintegrated labels not found"); rep(NA, length(barcodes)) }
+
+# Create the final data frame
+cluster_assignments <- data.frame(
+  barcode = barcodes,
+  CHOIR_Fibro_Integrated = labels_int,
+  CHOIR_Fibro_Unintegrated = labels_unint
+)
+rownames(cluster_assignments) <- cluster_assignments$barcode
+
+print(paste("Saving combined cluster assignments for fibroblasts to:", output_path_csv))
+write.csv(cluster_assignments, file = output_path_csv, row.names = FALSE, quote = FALSE)
+print("Successfully saved fibroblast CHOIR clusters as CSV.")
+# --- Optional: Save RDS of final combined object (sce_fibro_int_res will have int labels, need to add unint labels) ---
+if(choir_out_key_unintegrated %in% colnames(colData(sce_fibro_unint_res)) && choir_out_key_integrated %in% colnames(colData(sce_fibro_int_res))){
+    colData(sce_fibro_int_res)[[choir_out_key_unintegrated]] <- labels_unint # Add unint labels to the int object
+    print(paste("Saving fibroblast SCE with BOTH CHOIR clusters to RDS:", output_path_rds))
+    saveRDS(sce_fibro_int_res, file = output_path_rds)
+    print("Successfully saved RDS object.")
+ }
+
+print("\n--- R Script Finished ---")
+```
