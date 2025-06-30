@@ -8,6 +8,7 @@
 *.loom
 *.rds
 /spatial/data
+/sc/data
 
 # Ignore generated figures and plots
 *.pdf
