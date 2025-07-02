@@ -9,7 +9,8 @@
 *.rds
 /spatial/data
 /sc/data
-
+/sc/results
+/spatial/results
 # Ignore generated figures and plots
 *.pdf
 *.png
