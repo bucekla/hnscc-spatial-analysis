@@ -27,11 +27,11 @@ library(Matrix)
 
 ```{r, loading data}
 
-input_dir_from_python <- "./choir_intermediate/"
+input_dir_from_python <- "./data/GSE181919/processed/choir_intermediate/"
 h5ad_input_filename <- "adata_lognorm_for_choir.h5ad" 
 input_path <- file.path(input_dir_from_python, h5ad_input_filename)
 
-output_dir_from_r <- "./choir_intermediate/"
+output_dir_from_r <- "./data/GSE181919/processed/choir_intermediate/"
 csv_output_filename_fib <- "fibroblasts_choir_clusters_both.csv" # Combined CSV output
 output_path_csv <- file.path(output_dir_from_r, csv_output_filename_fib)
 # Optional RDS save
@@ -68,8 +68,8 @@ print("Inputs verified in fibroblast subset.")
 
 # --- Run CHOIR: Integrated Version ---
 print("\n--- Running CHOIR on Fibroblasts (Integrated via Harmony) ---")
-sce_fibro_int <- sce_fibro # Work on a copy for clarity
-colData(sce_fibro_int)$CHOIR_Placeholder_Int <- NA # Add placeholder column
+sce_fibro_int <- sce_fibro 
+colData(sce_fibro_int)$CHOIR_Placeholder_Int <- NA # placeholder column
 tryCatch({
   sce_fibro_int <- CHOIR(
     sce_fibro_int,

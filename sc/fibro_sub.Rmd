@@ -68,7 +68,7 @@ invisible(lapply(required_packages, install_and_load_packages))
 
 ```{r, data loading}
 fibro_path <- "/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/sce_with_CHOIR.rds"
-clusters_path <- "/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/choir_intermediate/fibroblasts_choir_clusters_both.csv"
+clusters_path <- "/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/data/GSE181919/processed/choir_intermediate/fibroblasts_choir_clusters_both.csv"
 fibro_obj <- readRDS(fibro_path)
 clusters <- read.csv(clusters_path, stringsAsFactors = FALSE)
 ```
@@ -136,7 +136,7 @@ cluster_assignments <- data.frame(
   CHOIR_Fibro_Integrated_subclustering_4 = labels_int
 )
 rownames(cluster_assignments) <- cluster_assignments$barcode
-output_path_csv <-"/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/choir_intermediate/fibroblasts_choir_subclustering_4_integrated.csv"
+output_path_csv <-"/storage/praha1/home/bucekl/labgenexp/spatial_project/sc/data/GSE181919/processed/choir_intermediate/fibroblasts_choir_subclustering_4_integrated.csv"
 print(paste("Saving combined cluster assignments for fibroblasts to:", output_path_csv))
 write.csv(cluster_assignments, file = output_path_csv, row.names = FALSE, quote = FALSE)
 print("Successfully saved fibroblast CHOIR clusters as CSV.")
